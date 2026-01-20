@@ -4733,7 +4733,23 @@ export class BaileysStartupService extends ChannelStartupService {
 
   private async updateMessagesReadedByTimestamp(remoteJid: string, timestamp?: number): Promise<number> {
     if (timestamp === undefined || timestamp === null) return 0;
+    
+    // detectar provedor de banco de dados
+    const provider = (process.env.DATABASE_PROVIDER || "").toLowerCase();
 
+    // MySQL JSON
+    if (provider === "mysql") {
+      return this.prismaRepository.$executeRaw`
+        UPDATE \`Message\`
+        SET \`status\` = ${status[4]}
+        WHERE \`instanceId\` = ${this.instanceId}
+          AND JSON_UNQUOTE(JSON_EXTRACT(\`key\`, '$.remoteJid')) = ${remoteJid}
+          AND JSON_EXTRACT(\`key\`, '$.fromMe') = false
+          AND \`messageTimestamp\` <= ${timestamp}
+          AND (\`status\` IS NULL OR \`status\` = ${status[3]})
+      `;
+    }
+    
     // Use raw SQL to avoid JSON path issues
     const result = await this.prismaRepository.$executeRaw`
       UPDATE "Message"
