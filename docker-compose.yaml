@@ -1,20 +1,22 @@
-version: "3.8"
-
 services:
   api:
     container_name: evolution_api
-    image: evoapicloud/evolution-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: evolution-api:patched
     restart: always
     depends_on:
-      - redis
-      - evolution-postgres
+      redis:
+        condition: service_started
+      evolution-mysql:
+        condition: service_healthy
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8080"
     volumes:
       - evolution_instances:/evolution/instances
     networks:
       - evolution-net
-      - dokploy-network
     env_file:
       - .env
     expose:
@@ -31,54 +33,52 @@ services:
 
   redis:
     container_name: evolution_redis
-    image: redis:latest
+    image: redis:7-alpine
     restart: always
-    command: >
-      redis-server --port 6379 --appendonly yes
+    command: ["redis-server", "--port", "6379", "--appendonly", "yes"]
     volumes:
       - evolution_redis:/data
     networks:
       evolution-net:
         aliases:
           - evolution-redis
-      dokploy-network:
-        aliases:
-          - evolution-redis
     expose:
       - "6379"
 
-  evolution-postgres:
-    container_name: evolution_postgres
-    image: postgres:15
+  evolution-mysql:
+    container_name: evolution_mysql
+    image: mysql:8.0
     restart: always
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     env_file:
       - .env
-    command:
-      - postgres
-      - -c
-      - max_connections=1000
-      - -c
-      - listen_addresses=*
     environment:
-      - POSTGRES_DB=${POSTGRES_DATABASE}
-      - POSTGRES_USER=${POSTGRES_USERNAME}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      MYSQL_DATABASE: evolution
+      MYSQL_USER: evolution
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     networks:
-      - evolution-net
-      - dokploy-network
-    expose:
-      - "5432"
+      evolution-net:
+        aliases:
+          - mysql
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
 
 volumes:
   evolution_instances:
   evolution_redis:
-  postgres_data:
+  mysql_data:
 
 networks:
   evolution-net:
     name: evolution-net
     driver: bridge
-  dokploy-network:
-    external: true
